@@ -1,0 +1,856 @@
+//@version=6
+indicator('KAIROS Smart Money Suite V2.2', shorttitle = 'KAIROS SMS V2.2', overlay = true, max_labels_count = 500, max_lines_count = 500, max_boxes_count = 300, dynamic_requests = true)
+
+// -------------------------------------------------------------------------------------------------
+// Inputs
+// -------------------------------------------------------------------------------------------------
+groupDisplay = 'Display'
+modePreset = input.string('Custom', 'Preset', options = ['Custom', 'Scalping', 'Intraday', 'Swing', 'Full'], group = groupDisplay)
+showInternal = input.bool(true, 'Internal structure', group = groupDisplay)
+showSwing = input.bool(true, 'Swing structure', group = groupDisplay)
+showEQ = input.bool(true, 'Equal highs/lows', group = groupDisplay)
+showFVG = input.bool(true, 'Fair value gaps', group = groupDisplay)
+showOB = input.bool(true, 'Order blocks', group = groupDisplay)
+showSweeps = input.bool(true, 'Liquidity sweeps', group = groupDisplay)
+showDisplacement = input.bool(true, 'Displacement candles', group = groupDisplay)
+showDashboard = input.bool(true, 'Show dashboard', group = groupDisplay)
+showSignalTable = input.bool(true, 'Show signal table (PE/SL/TP/RR)', group = groupDisplay)
+graphViewMode = input.string('Full', 'Graph view mode', options = ['Full', 'Clean'], group = groupDisplay)
+autoPresetProfile = input.string('Manual', 'Auto preset profile', options = ['Manual', 'Auto-Scalp', 'Auto-Intraday', 'Auto-Swing'], group = groupDisplay)
+executionOnlyView = input.bool(false, 'Execution-only view', group = groupDisplay)
+colorCandles = input.bool(false, 'Color candles by trend', group = groupDisplay)
+zoneLabelMode = input.string('All', 'Zone labels', options = ['All', 'Latest only', 'Off'], group = groupDisplay)
+
+labelSizeMainInput = input.string('Tiny', 'Main labels size', options = ['Tiny', 'Small', 'Normal'], group = groupDisplay)
+labelSizeZoneInput = input.string('Tiny', 'Zone labels size', options = ['Tiny', 'Small', 'Normal'], group = groupDisplay)
+
+bullColor = input.color(color.new(color.lime, 0), 'Bull color', group = groupDisplay)
+bearColor = input.color(color.new(color.red, 0), 'Bear color', group = groupDisplay)
+neutralColor = input.color(color.new(color.silver, 20), 'Neutral color', group = groupDisplay)
+dashboardTitleColor = input.color(color.white, 'Dashboard title text', group = groupDisplay)
+dashboardModeColor = input.color(color.white, 'Dashboard preset text', group = groupDisplay)
+dashboardLabelColor = input.color(color.black, 'Dashboard label text', group = groupDisplay)
+dashboardValueColor = input.color(color.black, 'Dashboard value text', group = groupDisplay)
+dashboardBullTextColor = input.color(color.black, 'Dashboard bull text', group = groupDisplay)
+dashboardBearTextColor = input.color(color.black, 'Dashboard bear text', group = groupDisplay)
+dashboardConfluencePlusColor = input.color(color.lime, 'Dashboard confluence + text', group = groupDisplay)
+dashboardConfluenceMinusColor = input.color(color.red, 'Dashboard confluence - text', group = groupDisplay)
+
+// -------------------------------------------------------------------------------------------------
+// Reliability settings
+// -------------------------------------------------------------------------------------------------
+groupReliability = 'Reliability V2.2'
+strictNonRepaint = input.bool(true, 'Strict non-repaint', group = groupReliability)
+useCloseOnlyForBreaks = input.bool(true, 'Breaks use close only', group = groupReliability)
+lookaheadVisualOnly = input.bool(false, 'Use lookahead on visual-only requests', group = groupReliability)
+bosBufferAtr = input.float(0.10, 'BOS/CHoCH buffer (ATR x)', minval = 0.0, step = 0.01, group = groupReliability)
+breakCooldownBars = input.int(4, 'Break cooldown bars', minval = 0, group = groupReliability)
+minFvgAtr = input.float(0.20, 'FVG min size (ATR x)', minval = 0.0, step = 0.01, group = groupReliability)
+requireImpulseForFvg = input.bool(false, 'Require displacement for FVG', group = groupReliability)
+
+// -------------------------------------------------------------------------------------------------
+// Structure settings
+// -------------------------------------------------------------------------------------------------
+groupStructure = 'Structure'
+internalPivotLen = input.int(5, 'Internal pivot length', minval = 2, group = groupStructure)
+swingPivotLen = input.int(25, 'Swing pivot length', minval = 5, group = groupStructure)
+eqAtrFactor = input.float(0.15, 'EQ threshold (ATR x)', minval = 0.01, maxval = 1.0, step = 0.01, group = groupStructure)
+
+// -------------------------------------------------------------------------------------------------
+// Liquidity tools
+// -------------------------------------------------------------------------------------------------
+groupLiquidity = 'Liquidity tools'
+obKeepCount = input.int(6, 'Order blocks kept', minval = 1, maxval = 30, group = groupLiquidity)
+fvgKeepCount = input.int(6, 'FVG kept', minval = 1, maxval = 30, group = groupLiquidity)
+obUseCloseMitigation = input.bool(true, 'Mitigate OB with close', group = groupLiquidity)
+fvgTf = input.timeframe('', 'FVG timeframe (empty = chart)', group = groupLiquidity)
+fvgExtendBars = input.int(30, 'FVG extension bars', minval = 1, group = groupLiquidity)
+
+// -------------------------------------------------------------------------------------------------
+// Context / confluence
+// -------------------------------------------------------------------------------------------------
+groupContext = 'SMC context'
+showPDZones = input.bool(true, 'Premium / Equilibrium / Discount', group = groupContext)
+pdEdgePercent = input.float(0.1, 'Premium/Discount edge size', minval = 0.02, maxval = 0.4, step = 0.01, group = groupContext)
+showEquilibriumLine = input.bool(true, 'Show equilibrium zone', group = groupContext)
+pdEqPercent = input.float(0.08, 'Equilibrium zone size', minval = 0.02, maxval = 0.3, step = 0.01, group = groupContext)
+pdRightExtendBars = input.int(40, 'PD zones extend right (bars)', minval = 1, maxval = 500, group = groupContext)
+showDailyLevels = input.bool(false, 'Previous day high/low', group = groupContext)
+showWeeklyLevels = input.bool(false, 'Previous week high/low', group = groupContext)
+showMonthlyLevels = input.bool(false, 'Previous month high/low', group = groupContext)
+
+// -------------------------------------------------------------------------------------------------
+// Momentum / specialist
+// -------------------------------------------------------------------------------------------------
+groupMomentum = 'Momentum'
+displacementAtrMult = input.float(1.8, 'Displacement threshold (ATR x)', minval = 0.5, maxval = 5.0, step = 0.1, group = groupMomentum)
+
+groupSpecialist = 'SMC specialist'
+enableWeightedConfluence = input.bool(true, 'Weighted confluence score', group = groupSpecialist)
+confluenceThreshold = input.int(65, 'A+ score threshold', minval = 30, maxval = 100, group = groupSpecialist)
+htfBiasTf = input.timeframe('240', 'HTF bias timeframe', group = groupSpecialist)
+useHtfBiasFilter = input.bool(true, 'Use HTF bias filter', group = groupSpecialist)
+showLiquidityMap = input.bool(true, 'Liquidity map (PDH/PDL/PWH/PWL)', group = groupSpecialist)
+liquiditySweepMode = input.string('Reclaim close', 'Liquidity sweep mode', options = ['Reclaim close', 'Any touch'], group = groupSpecialist)
+sessionBoost = input.bool(true, 'Session timing boost', group = groupSpecialist)
+sessionTimezone = input.string('Etc/UTC', 'Session timezone', group = groupSpecialist)
+londonSession = input.session('0700-1000', 'London session', group = groupSpecialist)
+newYorkSession = input.session('1300-1600', 'New York session', group = groupSpecialist)
+slBufferAtr = input.float(0.10, 'SL buffer (ATR x)', minval = 0.0, step = 0.01, group = groupSpecialist)
+rrTarget = input.float(2.0, 'Target RR', minval = 0.5, step = 0.1, group = groupSpecialist)
+minSignalRR = input.float(1.5, 'Minimum RR to validate setup', minval = 0.5, step = 0.1, group = groupSpecialist)
+useVolumeFilter = input.bool(false, 'Use volume confirmation filter', group = groupSpecialist)
+volumeSmaLen = input.int(20, 'Volume SMA length', minval = 1, group = groupSpecialist)
+volumeMult = input.float(1.1, 'Volume threshold multiplier', minval = 0.5, step = 0.1, group = groupSpecialist)
+noTradeAtrPct = input.float(0.55, 'No-trade compression threshold (ATR/ATR100)', minval = 0.1, maxval = 2.0, step = 0.05, group = groupSpecialist)
+noTradeMidEqOnly = input.bool(true, 'No-trade near Equilibrium only', group = groupSpecialist)
+midEqBandPct = input.float(0.20, 'Mid-range no-trade band (%)', minval = 0.05, maxval = 0.45, step = 0.01, group = groupSpecialist)
+postTradeEvalBars = input.int(20, 'Post-trade evaluation bars', minval = 5, maxval = 200, group = groupSpecialist)
+useMaxSlCap = input.bool(true, 'Cap SL distance', group = groupSpecialist)
+maxSlPips = input.int(100, 'Max SL (pips)', minval = 1, group = groupSpecialist)
+pipSize = input.float(0.01, 'Pip size (manual override)', minval = 0.00001, step = 0.00001, group = groupSpecialist)
+useAutoPipSize = input.bool(false, 'Auto pip size', group = groupSpecialist)
+autoPipMode = input.string('Forex only', 'Auto pip scope', options = ['Forex only', 'Forex + Metals'], group = groupSpecialist)
+useAdaptiveRegime = input.bool(true, 'Adaptive confluence by regime', group = groupSpecialist)
+regimeAdxLen = input.int(14, 'Regime ADX length', minval = 5, group = groupSpecialist)
+regimeAdxTrend = input.float(22.0, 'Regime trend threshold (ADX)', minval = 5.0, step = 0.5, group = groupSpecialist)
+narrativeDetail = input.string('Standard', 'Narrative detail', options = ['Court', 'Standard', 'Expert'], group = groupSpecialist)
+useDynamicAlertsFR = input.bool(false, 'Enable dynamic French alerts', group = groupSpecialist)
+alertTemplateLongFR = input.string('Setup LONG', 'Alerte LONG (template)', group = groupSpecialist)
+alertTemplateShortFR = input.string('Setup SHORT', 'Alerte SHORT (template)', group = groupSpecialist)
+
+isCustomPreset = modePreset == 'Custom'
+isCleanView = graphViewMode == 'Clean'
+showInternalEff = (isCustomPreset ? showInternal : modePreset == 'Scalping' or modePreset == 'Full') and not isCleanView
+showSwingEff = isCustomPreset ? showSwing : modePreset != 'Scalping'
+showEQEff = (isCustomPreset ? showEQ : modePreset == 'Intraday' or modePreset == 'Swing' or modePreset == 'Full') and not isCleanView
+showFVGEff = isCustomPreset ? showFVG : modePreset != 'Swing'
+showOBEff = isCustomPreset ? showOB : modePreset != 'Scalping'
+showSweepsEff = isCustomPreset ? showSweeps : modePreset == 'Scalping' or modePreset == 'Intraday' or modePreset == 'Full'
+showDisplacementEff = (isCustomPreset ? showDisplacement : modePreset != 'Swing') and not isCleanView
+showPDZonesEff = isCustomPreset ? showPDZones : modePreset == 'Intraday' or modePreset == 'Swing' or modePreset == 'Full'
+showDailyLevelsEff = isCustomPreset ? showDailyLevels : modePreset == 'Intraday' or modePreset == 'Full'
+showWeeklyLevelsEff = isCustomPreset ? showWeeklyLevels : modePreset == 'Swing' or modePreset == 'Full'
+showMonthlyLevelsEff = (isCustomPreset ? showMonthlyLevels : modePreset == 'Swing' or modePreset == 'Full') and not executionOnlyView
+showDashboardEff = showDashboard and not executionOnlyView
+
+showInternalEff := showInternalEff and not executionOnlyView
+showSwingEff := showSwingEff and not executionOnlyView
+showEQEff := showEQEff and not executionOnlyView
+showFVGEff := showFVGEff and not executionOnlyView
+showOBEff := showOBEff and not executionOnlyView
+showSweepsEff := showSweepsEff and not executionOnlyView
+showDisplacementEff := showDisplacementEff and not executionOnlyView
+showPDZonesEff := showPDZonesEff and not executionOnlyView
+showDailyLevelsEff := showDailyLevelsEff and not executionOnlyView
+showWeeklyLevelsEff := showWeeklyLevelsEff and not executionOnlyView
+showMonthlyLevelsEff := showMonthlyLevelsEff and not executionOnlyView
+
+bosBufferAtrEff = autoPresetProfile == 'Auto-Scalp' ? math.max(bosBufferAtr, 0.12) : autoPresetProfile == 'Auto-Intraday' ? math.max(bosBufferAtr, 0.10) : autoPresetProfile == 'Auto-Swing' ? math.max(bosBufferAtr, 0.15) : bosBufferAtr
+breakCooldownBarsEff = autoPresetProfile == 'Auto-Scalp' ? math.max(breakCooldownBars, 4) : autoPresetProfile == 'Auto-Intraday' ? math.max(breakCooldownBars, 5) : autoPresetProfile == 'Auto-Swing' ? math.max(breakCooldownBars, 6) : breakCooldownBars
+confluenceThresholdEff = autoPresetProfile == 'Auto-Scalp' ? math.max(confluenceThreshold, 68) : autoPresetProfile == 'Auto-Intraday' ? math.max(confluenceThreshold, 65) : autoPresetProfile == 'Auto-Swing' ? math.max(confluenceThreshold, 72) : confluenceThreshold
+minSignalRREff = autoPresetProfile == 'Auto-Scalp' ? math.max(minSignalRR, 1.4) : autoPresetProfile == 'Auto-Intraday' ? math.max(minSignalRR, 1.6) : autoPresetProfile == 'Auto-Swing' ? math.max(minSignalRR, 2.0) : minSignalRR
+noTradeAtrPctEff = autoPresetProfile == 'Auto-Scalp' ? math.min(noTradeAtrPct, 0.60) : autoPresetProfile == 'Auto-Intraday' ? noTradeAtrPct : autoPresetProfile == 'Auto-Swing' ? math.min(noTradeAtrPct, 0.50) : noTradeAtrPct
+
+labelSizeFromInput(string sizeTxt) =>
+    sizeTxt == 'Small' ? size.small : sizeTxt == 'Normal' ? size.normal : size.tiny
+
+labelSizeMain = labelSizeFromInput(labelSizeMainInput)
+labelSizeZone = labelSizeFromInput(labelSizeZoneInput)
+
+signalBarConfirmed = not strictNonRepaint or barstate.isconfirmed
+laMode = lookaheadVisualOnly ? barmerge.lookahead_on : barmerge.lookahead_off
+
+// -------------------------------------------------------------------------------------------------
+// Types
+// -------------------------------------------------------------------------------------------------
+type PivotPoint
+    float price
+    int index
+    int time
+    bool broken
+
+type BoxZone
+    float top
+    float bottom
+    int side // 1 bull, -1 bear
+    int bornIndex
+    string tag
+    box shape
+    label tagLabel
+
+// -------------------------------------------------------------------------------------------------
+// Persistent state
+// -------------------------------------------------------------------------------------------------
+var PivotPoint iHigh = PivotPoint.new(na, na, na, false)
+var PivotPoint iLow = PivotPoint.new(na, na, na, false)
+var PivotPoint sHigh = PivotPoint.new(na, na, na, false)
+var PivotPoint sLow = PivotPoint.new(na, na, na, false)
+
+var float lastEqHigh = na
+var int lastEqHighTime = na
+var float lastEqLow = na
+var int lastEqLowTime = na
+
+var int internalBias = 0
+var int swingBias = 0
+var int htfBias = 0
+
+var int lastInternalBreakBar = na
+var int lastSwingBreakBar = na
+
+var float trailingTop = na
+var int trailingTopIndex = na
+var float trailingBottom = na
+var int trailingBottomIndex = na
+
+var array<BoxZone> bullOB = array.new<BoxZone>()
+var array<BoxZone> bearOB = array.new<BoxZone>()
+var array<BoxZone> bullFVG = array.new<BoxZone>()
+var array<BoxZone> bearFVG = array.new<BoxZone>()
+
+var table dashboard = table.new(position.top_right, 2, 23, border_width = 1)
+var table signalTable = table.new(position.bottom_right, 2, 9, border_width = 1)
+var string lastEvent = 'None'
+var int lastExecBar = na
+var float lastExecEntry = na
+var float lastExecSL = na
+var float lastExecTP1 = na
+var float lastExecTP2 = na
+var int lastExecSide = 0
+var string lastReview = 'n/a'
+var int setupCounter = 0
+var string journalTxt = 'Aucun setup enregistré'
+
+var box premiumBox = na
+var box discountBox = na
+var box equilibriumBox = na
+var label premiumLbl = na
+var label discountLbl = na
+var label equilibriumLbl = na
+
+var line dHighLine = line.new(bar_index, close, bar_index + 1, close, xloc = xloc.bar_index)
+var line dLowLine = line.new(bar_index, close, bar_index + 1, close, xloc = xloc.bar_index)
+var label dHighLabel = label.new(bar_index, close, '', xloc = xloc.bar_index, style = label.style_label_left, color = color.new(color.black, 100))
+var label dLowLabel = label.new(bar_index, close, '', xloc = xloc.bar_index, style = label.style_label_left, color = color.new(color.black, 100))
+
+var line wHighLine = line.new(bar_index, close, bar_index + 1, close, xloc = xloc.bar_index)
+var line wLowLine = line.new(bar_index, close, bar_index + 1, close, xloc = xloc.bar_index)
+var label wHighLabel = label.new(bar_index, close, '', xloc = xloc.bar_index, style = label.style_label_left, color = color.new(color.black, 100))
+var label wLowLabel = label.new(bar_index, close, '', xloc = xloc.bar_index, style = label.style_label_left, color = color.new(color.black, 100))
+
+var line mHighLine = line.new(bar_index, close, bar_index + 1, close, xloc = xloc.bar_index)
+var line mLowLine = line.new(bar_index, close, bar_index + 1, close, xloc = xloc.bar_index)
+var label mHighLabel = label.new(bar_index, close, '', xloc = xloc.bar_index, style = label.style_label_left, color = color.new(color.black, 100))
+var label mLowLabel = label.new(bar_index, close, '', xloc = xloc.bar_index, style = label.style_label_left, color = color.new(color.black, 100))
+
+atrv = ta.atr(100)
+
+// -------------------------------------------------------------------------------------------------
+// Helpers
+// -------------------------------------------------------------------------------------------------
+updatePivot(PivotPoint p, float newPrice, int newIndex, int newTime) =>
+    p.price := newPrice
+    p.index := newIndex
+    p.time := newTime
+    p.broken := false
+
+plotStructureBreak(PivotPoint p, string txt, color c, bool up) =>
+    line.new(p.time, p.price, time, p.price, xloc = xloc.bar_time, style = line.style_dashed, color = c)
+    label.new(math.round((p.index + bar_index) * 0.5), p.price, txt, xloc = xloc.bar_index, style = up ? label.style_label_up : label.style_label_down, textcolor = c, color = color.new(color.black, 100), size = labelSizeMain)
+
+createZone(float top, float bottom, int side, color c, string tag) =>
+    zTop = math.max(top, bottom)
+    zBottom = math.min(top, bottom)
+    bx = box.new(bar_index, zTop, bar_index + 1, zBottom, xloc = xloc.bar_index, bgcolor = color.new(c, 85), border_color = color.new(c, 20))
+    mid = (zTop + zBottom) * 0.5
+    txt = label.new(bar_index, mid, zoneLabelMode == 'Off' ? '' : tag, xloc = xloc.bar_index, style = label.style_label_left, textcolor = c, color = color.new(color.black, 100), size = labelSizeZone)
+    BoxZone.new(zTop, zBottom, side, bar_index, tag, bx, txt)
+
+extendZone(BoxZone z, int rightBars) =>
+    if not na(z.bornIndex) and not na(z.shape)
+        // xloc.bar_index safety: right cannot be too far from current bar index.
+        rawRight = z.bornIndex + rightBars
+        maxRight = bar_index + 500
+        minRight = bar_index - 10000
+        safeRight = math.max(minRight, math.min(rawRight, maxRight))
+        box.set_right(z.shape, safeRight)
+        if not na(z.tagLabel)
+            label.set_x(z.tagLabel, safeRight)
+            label.set_y(z.tagLabel, (z.top + z.bottom) * 0.5)
+
+zoneMitigated(BoxZone z) =>
+    testHigh = obUseCloseMitigation ? close : high
+    testLow = obUseCloseMitigation ? close : low
+    z.side == 1 ? testLow < z.bottom : testHigh > z.top
+
+trimZones(array<BoxZone> arr, int keepCount) =>
+    while array.size(arr) > keepCount
+        old = array.pop(arr)
+        box.delete(old.shape)
+        label.delete(old.tagLabel)
+
+validBullBreak(float level) =>
+    breakPx = useCloseOnlyForBreaks ? close : high
+    signalBarConfirmed and breakPx > level + atrv * bosBufferAtrEff
+
+validBearBreak(float level) =>
+    breakPx = useCloseOnlyForBreaks ? close : low
+    signalBarConfirmed and breakPx < level - atrv * bosBufferAtrEff
+
+breakAllowed(int lastBreakBar) =>
+    na(lastBreakBar) or bar_index - lastBreakBar >= breakCooldownBarsEff
+
+validBullFvg(float top, float bottom, bool impulseOK) =>
+    gapSize = math.abs(top - bottom)
+    signalBarConfirmed and gapSize >= atrv * minFvgAtr and (not requireImpulseForFvg or impulseOK)
+
+lineSetLevel(line ln, float y, color c) =>
+    line.set_xy1(ln, bar_index - 150, y)
+    line.set_xy2(ln, bar_index + 30, y)
+    line.set_style(ln, line.style_dashed)
+    line.set_color(ln, c)
+
+plotPrevHighLow(string tf, bool enabled, color c, line hiLine, line loLine, label hiLabel, label loLabel) =>
+    if enabled
+        [prevHigh, prevLow] = request.security(syminfo.tickerid, tf, [high[1], low[1]], lookahead = barmerge.lookahead_off)
+        lineSetLevel(hiLine, prevHigh, c)
+        lineSetLevel(loLine, prevLow, c)
+        label.set_x(hiLabel, bar_index + 30)
+        label.set_y(hiLabel, prevHigh)
+        label.set_text(hiLabel, 'P' + tf + 'H')
+        label.set_textcolor(hiLabel, c)
+        label.set_size(hiLabel, labelSizeMain)
+        label.set_x(loLabel, bar_index + 30)
+        label.set_y(loLabel, prevLow)
+        label.set_text(loLabel, 'P' + tf + 'L')
+        label.set_textcolor(loLabel, c)
+        label.set_size(loLabel, labelSizeMain)
+    else
+        label.set_text(hiLabel, '')
+        label.set_text(loLabel, '')
+        line.set_color(hiLine, color.new(c, 100))
+        line.set_color(loLine, color.new(c, 100))
+
+// -------------------------------------------------------------------------------------------------
+// Pivots
+// -------------------------------------------------------------------------------------------------
+iPH = ta.pivothigh(high, internalPivotLen, internalPivotLen)
+iPL = ta.pivotlow(low, internalPivotLen, internalPivotLen)
+sPH = ta.pivothigh(high, swingPivotLen, swingPivotLen)
+sPL = ta.pivotlow(low, swingPivotLen, swingPivotLen)
+
+if not na(iPH)
+    updatePivot(iHigh, iPH, bar_index[internalPivotLen], time[internalPivotLen])
+if not na(iPL)
+    updatePivot(iLow, iPL, bar_index[internalPivotLen], time[internalPivotLen])
+if not na(sPH)
+    updatePivot(sHigh, sPH, bar_index[swingPivotLen], time[swingPivotLen])
+    trailingTop := sPH
+    trailingTopIndex := bar_index[swingPivotLen]
+if not na(sPL)
+    updatePivot(sLow, sPL, bar_index[swingPivotLen], time[swingPivotLen])
+    trailingBottom := sPL
+    trailingBottomIndex := bar_index[swingPivotLen]
+
+// -------------------------------------------------------------------------------------------------
+// HTF bias + sessions
+// -------------------------------------------------------------------------------------------------
+htfPrevHigh = request.security(syminfo.tickerid, htfBiasTf, high[1], lookahead = barmerge.lookahead_off)
+htfPrevLow = request.security(syminfo.tickerid, htfBiasTf, low[1], lookahead = barmerge.lookahead_off)
+if signalBarConfirmed
+    if close > htfPrevHigh
+        htfBias := 1
+    else if close < htfPrevLow
+        htfBias := -1
+
+inLondon = not na(time(timeframe.period, londonSession, sessionTimezone))
+inNewYork = not na(time(timeframe.period, newYorkSession, sessionTimezone))
+sessionActive = inLondon or inNewYork
+
+// -------------------------------------------------------------------------------------------------
+// Equal highs/lows
+// -------------------------------------------------------------------------------------------------
+if showEQEff
+    if not na(iPH)
+        if not na(lastEqHigh) and math.abs(iPH - lastEqHigh) <= atrv * eqAtrFactor
+            line.new(lastEqHighTime, lastEqHigh, time[internalPivotLen], iPH, xloc = xloc.bar_time, style = line.style_dotted, color = bearColor)
+            label.new(time[internalPivotLen], iPH, 'EQH', xloc = xloc.bar_time, textcolor = bearColor, color = color.new(color.black, 100), style = label.style_label_down, size = labelSizeMain)
+        lastEqHigh := iPH
+        lastEqHighTime := time[internalPivotLen]
+    if not na(iPL)
+        if not na(lastEqLow) and math.abs(iPL - lastEqLow) <= atrv * eqAtrFactor
+            line.new(lastEqLowTime, lastEqLow, time[internalPivotLen], iPL, xloc = xloc.bar_time, style = line.style_dotted, color = bullColor)
+            label.new(time[internalPivotLen], iPL, 'EQL', xloc = xloc.bar_time, textcolor = bullColor, color = color.new(color.black, 100), style = label.style_label_up, size = labelSizeMain)
+        lastEqLow := iPL
+        lastEqLowTime := time[internalPivotLen]
+
+// -------------------------------------------------------------------------------------------------
+// Structure breaks
+// -------------------------------------------------------------------------------------------------
+if showInternalEff and breakAllowed(lastInternalBreakBar)
+    if not na(iHigh.price) and not iHigh.broken and validBullBreak(iHigh.price)
+        tag = internalBias < 0 ? 'iCHoCH↑' : 'iBOS↑'
+        plotStructureBreak(iHigh, tag, bullColor, true)
+        internalBias := 1
+        iHigh.broken := true
+        lastInternalBreakBar := bar_index
+        lastEvent := tag
+        if showOBEff and bar_index > 1
+            z = createZone(high[1], low[1], 1, bullColor, 'OB+')
+            array.unshift(bullOB, z)
+            trimZones(bullOB, obKeepCount)
+    if not na(iLow.price) and not iLow.broken and validBearBreak(iLow.price)
+        tag = internalBias > 0 ? 'iCHoCH↓' : 'iBOS↓'
+        plotStructureBreak(iLow, tag, bearColor, false)
+        internalBias := -1
+        iLow.broken := true
+        lastInternalBreakBar := bar_index
+        lastEvent := tag
+        if showOBEff and bar_index > 1
+            z = createZone(high[1], low[1], -1, bearColor, 'OB-')
+            array.unshift(bearOB, z)
+            trimZones(bearOB, obKeepCount)
+
+if showSwingEff and breakAllowed(lastSwingBreakBar)
+    if not na(sHigh.price) and not sHigh.broken and validBullBreak(sHigh.price)
+        tag = swingBias < 0 ? 'sCHoCH↑' : 'sBOS↑'
+        plotStructureBreak(sHigh, tag, bullColor, true)
+        swingBias := 1
+        sHigh.broken := true
+        lastSwingBreakBar := bar_index
+        lastEvent := tag
+    if not na(sLow.price) and not sLow.broken and validBearBreak(sLow.price)
+        tag = swingBias > 0 ? 'sCHoCH↓' : 'sBOS↓'
+        plotStructureBreak(sLow, tag, bearColor, false)
+        swingBias := -1
+        sLow.broken := true
+        lastSwingBreakBar := bar_index
+        lastEvent := tag
+
+// -------------------------------------------------------------------------------------------------
+// Sweeps + displacement
+// -------------------------------------------------------------------------------------------------
+bullSweep = showSweepsEff and not na(sHigh.price) and high > sHigh.price and close < sHigh.price
+bearSweep = showSweepsEff and not na(sLow.price) and low < sLow.price and close > sLow.price
+if bullSweep
+    label.new(time, high, 'Buy-side sweep', xloc = xloc.bar_time, style = label.style_label_down, textcolor = bearColor, color = color.new(color.black, 100), size = labelSizeMain)
+    lastEvent := 'Buy-side sweep'
+if bearSweep
+    label.new(time, low, 'Sell-side sweep', xloc = xloc.bar_time, style = label.style_label_up, textcolor = bullColor, color = color.new(color.black, 100), size = labelSizeMain)
+    lastEvent := 'Sell-side sweep'
+
+bodyRange = high - low
+dispUp = showDisplacementEff and bodyRange > atrv * displacementAtrMult and close > open and close > high[1]
+dispDown = showDisplacementEff and bodyRange > atrv * displacementAtrMult and close < open and close < low[1]
+plotshape(dispUp, title = 'Bull displacement', style = shape.triangleup, color = bullColor, size = size.tiny, location = location.belowbar)
+plotshape(dispDown, title = 'Bear displacement', style = shape.triangledown, color = bearColor, size = size.tiny, location = location.abovebar)
+if dispUp
+    lastEvent := 'Displacement+'
+if dispDown
+    lastEvent := 'Displacement-'
+
+// -------------------------------------------------------------------------------------------------
+// FVG detection V2 (ATR filtered)
+// -------------------------------------------------------------------------------------------------
+newBullGap = false
+newBearGap = false
+if showFVGEff
+    tf = str.length(fvgTf) > 0 ? fvgTf : timeframe.period
+    [h0, l0, h2, l2] = request.security(syminfo.tickerid, tf, [high, low, high[2], low[2]], lookahead = laMode)
+
+    bullGapTop = l0
+    bullGapBottom = h2
+    bearGapTop = l2
+    bearGapBottom = h0
+
+    newBullGap := l0 > h2 and validBullFvg(bullGapTop, bullGapBottom, dispUp)
+    newBearGap := h0 < l2 and validBullFvg(bearGapTop, bearGapBottom, dispDown)
+
+    if newBullGap and not na(bullGapTop) and not na(bullGapBottom)
+        z = createZone(bullGapTop, bullGapBottom, 1, color.teal, 'FVG+')
+        extendZone(z, fvgExtendBars)
+        array.unshift(bullFVG, z)
+        trimZones(bullFVG, fvgKeepCount)
+        lastEvent := 'FVG+'
+    if newBearGap and not na(bearGapTop) and not na(bearGapBottom)
+        z = createZone(bearGapTop, bearGapBottom, -1, color.orange, 'FVG-')
+        extendZone(z, fvgExtendBars)
+        array.unshift(bearFVG, z)
+        trimZones(bearFVG, fvgKeepCount)
+        lastEvent := 'FVG-'
+
+// -------------------------------------------------------------------------------------------------
+// Zone maintenance
+// -------------------------------------------------------------------------------------------------
+if array.size(bullOB) > 0
+    i = array.size(bullOB) - 1
+    while i >= 0
+        z = array.get(bullOB, i)
+        box.set_right(z.shape, bar_index)
+        label.set_x(z.tagLabel, bar_index)
+        label.set_y(z.tagLabel, (z.top + z.bottom) * 0.5)
+        label.set_text(z.tagLabel, zoneLabelMode == 'Off' ? '' : zoneLabelMode == 'Latest only' and i != 0 ? '' : z.tag)
+        if zoneMitigated(z)
+            box.delete(z.shape)
+            label.delete(z.tagLabel)
+            array.remove(bullOB, i)
+        i := i - 1
+
+if array.size(bearOB) > 0
+    i = array.size(bearOB) - 1
+    while i >= 0
+        z = array.get(bearOB, i)
+        box.set_right(z.shape, bar_index)
+        label.set_x(z.tagLabel, bar_index)
+        label.set_y(z.tagLabel, (z.top + z.bottom) * 0.5)
+        label.set_text(z.tagLabel, zoneLabelMode == 'Off' ? '' : zoneLabelMode == 'Latest only' and i != 0 ? '' : z.tag)
+        if zoneMitigated(z)
+            box.delete(z.shape)
+            label.delete(z.tagLabel)
+            array.remove(bearOB, i)
+        i := i - 1
+
+if array.size(bullFVG) > 0
+    i = array.size(bullFVG) - 1
+    while i >= 0
+        z = array.get(bullFVG, i)
+        extendZone(z, fvgExtendBars)
+        if not na(z.tagLabel)
+            label.set_text(z.tagLabel, zoneLabelMode == 'Off' ? '' : zoneLabelMode == 'Latest only' and i != 0 ? '' : z.tag)
+        if low < z.bottom
+            box.delete(z.shape)
+            label.delete(z.tagLabel)
+            array.remove(bullFVG, i)
+        i := i - 1
+
+if array.size(bearFVG) > 0
+    i = array.size(bearFVG) - 1
+    while i >= 0
+        z = array.get(bearFVG, i)
+        extendZone(z, fvgExtendBars)
+        if not na(z.tagLabel)
+            label.set_text(z.tagLabel, zoneLabelMode == 'Off' ? '' : zoneLabelMode == 'Latest only' and i != 0 ? '' : z.tag)
+        if high > z.top
+            box.delete(z.shape)
+            label.delete(z.tagLabel)
+            array.remove(bearFVG, i)
+        i := i - 1
+
+// -------------------------------------------------------------------------------------------------
+// Premium / Discount (frozen on confirmed swing extremes)
+// -------------------------------------------------------------------------------------------------
+if showPDZonesEff and not na(trailingTop) and not na(trailingBottom) and trailingTop > trailingBottom
+    rng = trailingTop - trailingBottom
+    rightEdge = bar_index + pdRightExtendBars
+
+    premiumTop = trailingTop
+    premiumBottom = trailingTop - rng * pdEdgePercent
+
+    discountTop = trailingBottom + rng * pdEdgePercent
+    discountBottom = trailingBottom
+
+    eqLevel = (trailingTop + trailingBottom) * 0.5
+    eqTop = eqLevel + rng * pdEqPercent * 0.5
+    eqBottom = eqLevel - rng * pdEqPercent * 0.5
+
+    leftAnchor = math.min(trailingTopIndex, trailingBottomIndex)
+
+    if na(premiumBox)
+        premiumBox := box.new(leftAnchor, premiumTop, rightEdge, premiumBottom, xloc = xloc.bar_index, bgcolor = color.new(bearColor, 86), border_color = color.new(bearColor, 70))
+        discountBox := box.new(leftAnchor, discountTop, rightEdge, discountBottom, xloc = xloc.bar_index, bgcolor = color.new(bullColor, 86), border_color = color.new(bullColor, 70))
+        equilibriumBox := box.new(leftAnchor, eqTop, rightEdge, eqBottom, xloc = xloc.bar_index, bgcolor = color.new(neutralColor, 86), border_color = color.new(neutralColor, 65))
+        premiumLbl := label.new(rightEdge, premiumTop, 'Premium', xloc = xloc.bar_index, style = label.style_label_down, textcolor = bearColor, color = color.new(color.black, 100), size = labelSizeZone)
+        discountLbl := label.new(rightEdge, discountBottom, 'Discount', xloc = xloc.bar_index, style = label.style_label_up, textcolor = bullColor, color = color.new(color.black, 100), size = labelSizeZone)
+        equilibriumLbl := label.new(rightEdge, eqLevel, 'Equilibrium', xloc = xloc.bar_index, style = label.style_label_left, textcolor = neutralColor, color = color.new(color.black, 100), size = labelSizeZone)
+    else
+        box.set_left(premiumBox, leftAnchor)
+        box.set_right(premiumBox, rightEdge)
+        box.set_top(premiumBox, premiumTop)
+        box.set_bottom(premiumBox, premiumBottom)
+
+        box.set_left(discountBox, leftAnchor)
+        box.set_right(discountBox, rightEdge)
+        box.set_top(discountBox, discountTop)
+        box.set_bottom(discountBox, discountBottom)
+
+        box.set_left(equilibriumBox, leftAnchor)
+        box.set_right(equilibriumBox, rightEdge)
+        box.set_top(equilibriumBox, eqTop)
+        box.set_bottom(equilibriumBox, eqBottom)
+
+        label.set_x(premiumLbl, rightEdge)
+        label.set_y(premiumLbl, premiumTop)
+        label.set_x(discountLbl, rightEdge)
+        label.set_y(discountLbl, discountBottom)
+        label.set_x(equilibriumLbl, rightEdge)
+        label.set_y(equilibriumLbl, eqLevel)
+
+    if not showEquilibriumLine
+        box.set_bgcolor(equilibriumBox, color.new(neutralColor, 100))
+        box.set_border_color(equilibriumBox, color.new(neutralColor, 100))
+        label.set_text(equilibriumLbl, '')
+    else
+        box.set_bgcolor(equilibriumBox, color.new(neutralColor, 86))
+        box.set_border_color(equilibriumBox, color.new(neutralColor, 65))
+        label.set_text(equilibriumLbl, 'Equilibrium')
+
+// -------------------------------------------------------------------------------------------------
+// Previous D/W/M highs & lows
+// -------------------------------------------------------------------------------------------------
+if barstate.islast
+    plotPrevHighLow('D', showDailyLevelsEff, color.new(color.blue, 0), dHighLine, dLowLine, dHighLabel, dLowLabel)
+    plotPrevHighLow('W', showWeeklyLevelsEff, color.new(color.blue, 0), wHighLine, wLowLine, wHighLabel, wLowLabel)
+    plotPrevHighLow('M', showMonthlyLevelsEff, color.new(color.blue, 0), mHighLine, mLowLine, mHighLabel, mLowLabel)
+
+// -------------------------------------------------------------------------------------------------
+// Confluence V2 (family-capped scoring)
+// -------------------------------------------------------------------------------------------------
+liveTopState = not na(trailingTop) ? trailingTop : na
+liveBottomState = not na(trailingBottom) ? trailingBottom : na
+premiumState = showPDZonesEff and not na(liveTopState) and not na(liveBottomState) and liveTopState > liveBottomState ? close > (liveTopState + liveBottomState) * 0.5 + (liveTopState - liveBottomState) * pdEqPercent * 0.5 ? 'Premium' : close < (liveTopState + liveBottomState) * 0.5 - (liveTopState - liveBottomState) * pdEqPercent * 0.5 ? 'Discount' : 'Equilibrium' : 'n/a'
+
+pdh = request.security(syminfo.tickerid, 'D', high[1], lookahead = barmerge.lookahead_off)
+pdl = request.security(syminfo.tickerid, 'D', low[1], lookahead = barmerge.lookahead_off)
+pwh = request.security(syminfo.tickerid, 'W', high[1], lookahead = barmerge.lookahead_off)
+pwl = request.security(syminfo.tickerid, 'W', low[1], lookahead = barmerge.lookahead_off)
+
+tookPDH = high > pdh
+tookPDL = low < pdl
+tookPWH = high > pwh
+tookPWL = low < pwl
+
+sweptPDH = liquiditySweepMode == 'Reclaim close' ? tookPDH and close < pdh : tookPDH
+sweptPDL = liquiditySweepMode == 'Reclaim close' ? tookPDL and close > pdl : tookPDL
+sweptPWH = liquiditySweepMode == 'Reclaim close' ? tookPWH and close < pwh : tookPWH
+sweptPWL = liquiditySweepMode == 'Reclaim close' ? tookPWL and close > pwl : tookPWL
+
+structureBull = math.min((internalBias > 0 ? 15 : 0) + (swingBias > 0 ? 20 : 0), 35)
+structureBear = math.min((internalBias < 0 ? 15 : 0) + (swingBias < 0 ? 20 : 0), 35)
+liquidityBull = math.min((bearSweep ? 20 : 0) + (newBullGap ? 15 : 0), 35)
+liquidityBear = math.min((bullSweep ? 20 : 0) + (newBearGap ? 15 : 0), 35)
+contextBull = math.min((premiumState == 'Discount' ? 8 : 0) + (htfBias > 0 ? 12 : 0), 20)
+contextBear = math.min((premiumState == 'Premium' ? 8 : 0) + (htfBias < 0 ? 12 : 0), 20)
+timingPart = sessionBoost and sessionActive ? 10 : 0
+
+[diplusRegime, diminusRegime, adxRegime] = ta.dmi(regimeAdxLen, regimeAdxLen)
+isTrendRegime = adxRegime >= regimeAdxTrend
+regimeBullBonus = useAdaptiveRegime ? (isTrendRegime ? (swingBias > 0 ? 8 : 0) : (premiumState == 'Discount' ? 8 : 0)) : 0
+regimeBearBonus = useAdaptiveRegime ? (isTrendRegime ? (swingBias < 0 ? 8 : 0) : (premiumState == 'Premium' ? 8 : 0)) : 0
+
+rawBullScore = enableWeightedConfluence ? math.min(structureBull + liquidityBull + contextBull + timingPart + regimeBullBonus, 100) : (dispUp ? 1 : 0) + (bearSweep ? 1 : 0) + (newBullGap ? 1 : 0)
+rawBearScore = enableWeightedConfluence ? math.min(structureBear + liquidityBear + contextBear + timingPart + regimeBearBonus, 100) : (dispDown ? 1 : 0) + (bullSweep ? 1 : 0) + (newBearGap ? 1 : 0)
+scoreBull = useHtfBiasFilter and htfBias < 0 ? 0 : rawBullScore
+scoreBear = useHtfBiasFilter and htfBias > 0 ? 0 : rawBearScore
+
+setupLongReady = scoreBull >= confluenceThresholdEff and (not useHtfBiasFilter or htfBias >= 0)
+setupShortReady = scoreBear >= confluenceThresholdEff and (not useHtfBiasFilter or htfBias <= 0)
+
+activeLong = setupLongReady and (not setupShortReady or scoreBull >= scoreBear)
+activeShort = setupShortReady and (not setupLongReady or scoreBear > scoreBull)
+
+entryPrice = close
+longSLRaw = not na(trailingBottom) ? trailingBottom - atrv * slBufferAtr : na
+shortSLRaw = not na(trailingTop) ? trailingTop + atrv * slBufferAtr : na
+isMetalSymbol = str.contains(str.upper(syminfo.ticker), 'XAU') or str.contains(str.upper(syminfo.ticker), 'XAG')
+autoPipAllowed = autoPipMode == 'Forex + Metals' ? (syminfo.type == 'forex' or isMetalSymbol) : syminfo.type == 'forex'
+pipSizeEff = useAutoPipSize and autoPipAllowed ? syminfo.mintick * 10.0 : pipSize
+maxSlDistance = maxSlPips * pipSizeEff
+longSLCap = entryPrice - maxSlDistance
+shortSLCap = entryPrice + maxSlDistance
+longSL = useMaxSlCap and not na(longSLRaw) ? math.max(longSLRaw, longSLCap) : longSLRaw
+shortSL = useMaxSlCap and not na(shortSLRaw) ? math.min(shortSLRaw, shortSLCap) : shortSLRaw
+longRisk = not na(longSL) ? entryPrice - longSL : na
+shortRisk = not na(shortSL) ? shortSL - entryPrice : na
+longTP = not na(longRisk) and longRisk > 0 ? entryPrice + longRisk * rrTarget : na
+shortTP = not na(shortRisk) and shortRisk > 0 ? entryPrice - shortRisk * rrTarget : na
+longTP1 = not na(longRisk) and longRisk > 0 ? entryPrice + longRisk * 1.0 : na
+shortTP1 = not na(shortRisk) and shortRisk > 0 ? entryPrice - shortRisk * 1.0 : na
+longTP2 = longTP
+shortTP2 = shortTP
+longRunner = not na(trailingTop) ? trailingTop : na
+shortRunner = not na(trailingBottom) ? trailingBottom : na
+longRR = not na(longSL) and not na(longTP2) and longRisk > 0 ? (longTP2 - entryPrice) / math.max(entryPrice - longSL, syminfo.mintick) : na
+shortRR = not na(shortSL) and not na(shortTP2) and shortRisk > 0 ? (entryPrice - shortTP2) / math.max(shortSL - entryPrice, syminfo.mintick) : na
+volSma = ta.sma(volume, volumeSmaLen)
+volumePass = not useVolumeFilter or volume > volSma * volumeMult
+riskReadyLong = not na(longRR) and longRR >= minSignalRREff
+riskReadyShort = not na(shortRR) and shortRR >= minSignalRREff
+
+rangeSize = not na(trailingTop) and not na(trailingBottom) ? trailingTop - trailingBottom : na
+midRange = not na(rangeSize) ? (trailingTop + trailingBottom) * 0.5 : na
+inMidBand = noTradeMidEqOnly and not na(rangeSize) and rangeSize > 0 ? math.abs(close - midRange) <= rangeSize * midEqBandPct * 0.5 : false
+compressionState = atrv / math.max(ta.atr(300), syminfo.mintick) < noTradeAtrPctEff
+noTradeZone = compressionState and (not noTradeMidEqOnly or inMidBand)
+
+activeLong := activeLong and riskReadyLong and volumePass and not noTradeZone
+activeShort := activeShort and riskReadyShort and volumePass and not noTradeZone
+signalDir = activeLong ? 'LONG' : activeShort ? 'SHORT' : 'WAIT'
+slPrice = activeLong ? longSL : activeShort ? shortSL : na
+tpPrice = activeLong ? longTP2 : activeShort ? shortTP2 : na
+tp1Price = activeLong ? longTP1 : activeShort ? shortTP1 : na
+runnerPrice = activeLong ? longRunner : activeShort ? shortRunner : na
+rrValue = activeLong ? longRR : activeShort ? shortRR : na
+setupScore = activeLong ? scoreBull : activeShort ? scoreBear : math.max(scoreBull, scoreBear)
+setupGrade = setupScore >= 85 and not noTradeZone and volumePass ? 'A' : setupScore >= 70 and not noTradeZone ? 'B' : setupScore >= confluenceThresholdEff ? 'C' : '-'
+signalFilterTxt = noTradeZone ? 'Zone no-trade' : volumePass ? 'Volume OK' : 'Volume faible'
+
+narrativeCourtL1 = activeLong ? 'LONG validé.' : activeShort ? 'SHORT validé.' : noTradeZone ? 'Zone no-trade.' : 'Attente setup.'
+narrativeCourtL2 = activeLong or activeShort ? 'Exécution possible.' : 'Patienter.'
+
+narrativeStandardL1 = activeLong ? 'HTF/structure alignés LONG.' : activeShort ? 'HTF/structure alignés SHORT.' : noTradeZone ? 'Compression/équilibre: no-trade.' : 'Pas de setup premium pour le moment.'
+narrativeStandardL2 = activeLong ? 'Exécuter sur pullback avec discipline.' : activeShort ? 'Exécuter avec plan de risque strict.' : noTradeZone ? 'Patience, attendre expansion.' : 'Attendre sweep + displacement + contexte.'
+
+narrativeExpertL1 = activeLong ? 'Confluence complète LONG (structure/liquidité/contexte).' : activeShort ? 'Confluence complète SHORT (structure/liquidité/contexte).' : noTradeZone ? 'Régime compressé autour de l équilibre.' : 'Confluence insuffisante pour exécuter.'
+narrativeExpertL2 = activeLong ? 'Plan: PE/SL/TP2 ok, privilégier pullback et gestion active.' : activeShort ? 'Plan: PE/SL/TP2 ok, privilégier rejet et gestion active.' : noTradeZone ? 'Réduire risque, attendre expansion + déplacement.' : 'Attendre break + sweep + impulsion avant entrée.'
+
+narrativeLine1 = narrativeDetail == 'Court' ? narrativeCourtL1 : narrativeDetail == 'Expert' ? narrativeExpertL1 : narrativeStandardL1
+narrativeLine2 = narrativeDetail == 'Court' ? narrativeCourtL2 : narrativeDetail == 'Expert' ? narrativeExpertL2 : narrativeStandardL2
+narrative = narrativeLine1 + ' ' + narrativeLine2
+
+newExec = (activeLong or activeShort) and (na(lastExecBar) or bar_index > lastExecBar)
+if newExec
+    setupCounter += 1
+    lastExecBar := bar_index
+    lastExecEntry := entryPrice
+    lastExecSL := slPrice
+    lastExecTP1 := tp1Price
+    lastExecTP2 := tpPrice
+    lastExecSide := activeLong ? 1 : -1
+    journalTxt := 'ID#' + str.tostring(setupCounter) + ' | ' + (activeLong ? 'LONG' : 'SHORT') + ' | PE:' + str.tostring(entryPrice, format.mintick) + ' | SL:' + str.tostring(slPrice, format.mintick) + ' | TP2:' + str.tostring(tpPrice, format.mintick)
+
+if not na(lastExecBar) and bar_index - lastExecBar >= postTradeEvalBars
+    hitSL = lastExecSide == 1 ? low <= lastExecSL : high >= lastExecSL
+    hitTP1 = lastExecSide == 1 ? high >= lastExecTP1 : low <= lastExecTP1
+    hitTP2 = lastExecSide == 1 ? high >= lastExecTP2 : low <= lastExecTP2
+    lastReview := hitTP2 ? 'TP2 touché' : hitTP1 ? 'TP1 touché' : hitSL ? 'SL touché' : 'Ouvert / neutre'
+
+// Alerts
+alertcondition(setupLongReady, title = 'KAIROS A+ Long', message = 'KAIROS V2.2 A+ Long | {{ticker}} {{interval}}')
+alertcondition(setupShortReady, title = 'KAIROS A+ Short', message = 'KAIROS V2.2 A+ Short | {{ticker}} {{interval}}')
+alertcondition(useHtfBiasFilter and scoreBull >= confluenceThresholdEff and htfBias < 0 or useHtfBiasFilter and scoreBear >= confluenceThresholdEff and htfBias > 0, title = 'KAIROS HTF conflict', message = 'KAIROS V2.2 HTF conflict | {{ticker}} {{interval}}')
+alertcondition((bullSweep and dispDown) or (bearSweep and dispUp), title = 'KAIROS Sweep + Displacement', message = 'KAIROS V2.2 Sweep + Displacement | {{ticker}} {{interval}}')
+alertcondition(activeLong or activeShort, title = 'KAIROS Execution Ready', message = 'KAIROS V2.2 Execution Ready | {{ticker}} {{interval}}')
+alertcondition((activeLong or activeShort) and setupGrade == 'A', title = 'KAIROS Grade A Setup', message = 'KAIROS V2.2 Grade A Setup | {{ticker}} {{interval}}')
+
+if useDynamicAlertsFR and barstate.isconfirmed
+    if activeLong
+        alert(alertTemplateLongFR + ' | ID=' + str.tostring(setupCounter) + ' | Score=' + str.tostring(scoreBull) + ' | RR=' + str.tostring(rrValue, '#.##') + ' | Grade=' + setupGrade + ' | PE=' + str.tostring(entryPrice, format.mintick) + ' | SL=' + str.tostring(slPrice, format.mintick) + ' | TP2=' + str.tostring(tpPrice, format.mintick), alert.freq_once_per_bar_close)
+    if activeShort
+        alert(alertTemplateShortFR + ' | ID=' + str.tostring(setupCounter) + ' | Score=' + str.tostring(scoreBear) + ' | RR=' + str.tostring(rrValue, '#.##') + ' | Grade=' + setupGrade + ' | PE=' + str.tostring(entryPrice, format.mintick) + ' | SL=' + str.tostring(slPrice, format.mintick) + ' | TP2=' + str.tostring(tpPrice, format.mintick), alert.freq_once_per_bar_close)
+
+// -------------------------------------------------------------------------------------------------
+// Rendering
+// -------------------------------------------------------------------------------------------------
+heatmapTxt = setupScore >= 90 ? '█████' : setupScore >= 75 ? '████' : setupScore >= 60 ? '███' : setupScore >= 45 ? '██' : setupScore >= 30 ? '█' : '-'
+trendColor = swingBias > 0 ? bullColor : swingBias < 0 ? bearColor : neutralColor
+plotcandle(colorCandles ? open : na, high, low, close, color = trendColor, wickcolor = trendColor, bordercolor = trendColor)
+
+if showDashboardEff and barstate.islast
+    biasTxt = swingBias > 0 ? 'Bullish' : swingBias < 0 ? 'Bearish' : 'Neutral'
+    htfTxt = htfBias > 0 ? 'HTF Bull' : htfBias < 0 ? 'HTF Bear' : 'HTF Neutral'
+    liquidityTxtTop = showLiquidityMap ? 'PDH:' + (sweptPDH ? 'swept' : 'intact') + ' | PDL:' + (sweptPDL ? 'swept' : 'intact') : 'off'
+    liquidityTxtBottom = showLiquidityMap ? 'PWH:' + (sweptPWH ? 'swept' : 'intact') + ' | PWL:' + (sweptPWL ? 'swept' : 'intact') : 'off'
+    mentorTxt = activeLong ? 'A+ Long' : activeShort ? 'A+ Short' : setupLongReady or setupShortReady ? 'Blocked' : 'Wait'
+
+    table.cell(dashboard, 0, 0, 'KAIROS SMS V2.2', text_color = dashboardTitleColor, bgcolor = color.new(color.black, 10))
+    table.cell(dashboard, 1, 0, modePreset, text_color = dashboardModeColor, bgcolor = color.new(color.black, 10))
+
+    table.cell(dashboard, 0, 1, 'Bias', text_color = dashboardLabelColor, bgcolor = color.new(color.gray, 88))
+    table.cell(dashboard, 1, 1, biasTxt + ' / ' + htfTxt, text_color = swingBias > 0 ? dashboardBullTextColor : swingBias < 0 ? dashboardBearTextColor : dashboardValueColor, bgcolor = color.new(color.gray, 88))
+
+    table.cell(dashboard, 0, 2, 'Last', text_color = dashboardLabelColor, bgcolor = color.new(color.gray, 92))
+    table.cell(dashboard, 1, 2, lastEvent, text_color = dashboardValueColor, bgcolor = color.new(color.gray, 92))
+
+    table.cell(dashboard, 0, 3, 'OB / FVG', text_color = dashboardLabelColor, bgcolor = color.new(color.gray, 88))
+    table.cell(dashboard, 1, 3, str.tostring(showOBEff ? array.size(bullOB) + array.size(bearOB) : 0) + ' / ' + str.tostring(showFVGEff ? array.size(bullFVG) + array.size(bearFVG) : 0), text_color = dashboardValueColor, bgcolor = color.new(color.gray, 88))
+
+    table.cell(dashboard, 0, 4, 'Zone', text_color = dashboardLabelColor, bgcolor = color.new(color.gray, 92))
+    table.cell(dashboard, 1, 4, premiumState, text_color = dashboardValueColor, bgcolor = color.new(color.gray, 92))
+
+    table.cell(dashboard, 0, 5, 'Confluence +', text_color = dashboardConfluencePlusColor, bgcolor = color.new(color.gray, 88))
+    table.cell(dashboard, 1, 5, str.tostring(scoreBull), text_color = dashboardConfluencePlusColor, bgcolor = color.new(color.gray, 88))
+
+    table.cell(dashboard, 0, 6, 'Confluence -', text_color = dashboardConfluenceMinusColor, bgcolor = color.new(color.gray, 92))
+    table.cell(dashboard, 1, 6, str.tostring(scoreBear), text_color = dashboardConfluenceMinusColor, bgcolor = color.new(color.gray, 92))
+
+    table.cell(dashboard, 0, 7, 'Session', text_color = dashboardLabelColor, bgcolor = color.new(color.gray, 88))
+    table.cell(dashboard, 1, 7, sessionActive ? 'London/NY active' : 'Outside session', text_color = sessionActive ? dashboardBullTextColor : dashboardValueColor, bgcolor = color.new(color.gray, 88))
+
+    table.cell(dashboard, 0, 8, 'Liquidity (1/2)', text_color = dashboardLabelColor, bgcolor = color.new(color.gray, 92))
+    table.cell(dashboard, 1, 8, liquidityTxtTop, text_color = dashboardValueColor, bgcolor = color.new(color.gray, 92))
+
+    table.cell(dashboard, 0, 9, 'Liquidity (2/2)', text_color = dashboardLabelColor, bgcolor = color.new(color.gray, 88))
+    table.cell(dashboard, 1, 9, liquidityTxtBottom, text_color = dashboardValueColor, bgcolor = color.new(color.gray, 88))
+
+    table.cell(dashboard, 0, 10, 'Mentor', text_color = dashboardLabelColor, bgcolor = color.new(color.gray, 92))
+    table.cell(dashboard, 1, 10, mentorTxt, text_color = mentorTxt == 'A+ Long' ? dashboardBullTextColor : mentorTxt == 'A+ Short' ? dashboardBearTextColor : dashboardValueColor, bgcolor = color.new(color.gray, 92))
+
+    table.cell(dashboard, 0, 11, 'Grade', text_color = dashboardLabelColor, bgcolor = color.new(color.gray, 88))
+    table.cell(dashboard, 1, 11, setupGrade, text_color = setupGrade == 'A' ? dashboardBullTextColor : setupGrade == 'B' ? dashboardValueColor : dashboardBearTextColor, bgcolor = color.new(color.gray, 88))
+
+    table.cell(dashboard, 0, 12, 'Filter', text_color = dashboardLabelColor, bgcolor = color.new(color.gray, 92))
+    table.cell(dashboard, 1, 12, signalFilterTxt, text_color = noTradeZone ? dashboardBearTextColor : dashboardValueColor, bgcolor = color.new(color.gray, 92))
+
+    table.cell(dashboard, 0, 13, 'Narrative (1/2)', text_color = dashboardLabelColor, bgcolor = color.new(color.gray, 88))
+    table.cell(dashboard, 1, 13, narrativeLine1, text_color = dashboardValueColor, bgcolor = color.new(color.gray, 88))
+
+    table.cell(dashboard, 0, 14, 'Narrative (2/2)', text_color = dashboardLabelColor, bgcolor = color.new(color.gray, 92))
+    table.cell(dashboard, 1, 14, narrativeLine2, text_color = dashboardValueColor, bgcolor = color.new(color.gray, 92))
+
+    table.cell(dashboard, 0, 15, 'Review', text_color = dashboardLabelColor, bgcolor = color.new(color.gray, 88))
+    table.cell(dashboard, 1, 15, lastReview, text_color = dashboardValueColor, bgcolor = color.new(color.gray, 88))
+
+    table.cell(dashboard, 0, 16, 'Strict', text_color = dashboardLabelColor, bgcolor = color.new(color.gray, 92))
+    table.cell(dashboard, 1, 16, strictNonRepaint ? 'ON' : 'OFF', text_color = strictNonRepaint ? dashboardBullTextColor : dashboardValueColor, bgcolor = color.new(color.gray, 92))
+
+    table.cell(dashboard, 0, 17, 'View', text_color = dashboardLabelColor, bgcolor = color.new(color.gray, 88))
+    table.cell(dashboard, 1, 17, graphViewMode, text_color = dashboardValueColor, bgcolor = color.new(color.gray, 88))
+
+    table.cell(dashboard, 0, 18, 'No-Trade', text_color = dashboardLabelColor, bgcolor = color.new(color.gray, 92))
+    table.cell(dashboard, 1, 18, noTradeZone ? 'ACTIVE' : 'OFF', text_color = noTradeZone ? dashboardBearTextColor : dashboardBullTextColor, bgcolor = color.new(color.gray, 92))
+
+    table.cell(dashboard, 0, 19, 'Régime', text_color = dashboardLabelColor, bgcolor = color.new(color.gray, 88))
+    table.cell(dashboard, 1, 19, isTrendRegime ? 'Trend (ADX)' : 'Range (ADX)', text_color = dashboardValueColor, bgcolor = color.new(color.gray, 88))
+
+    table.cell(dashboard, 0, 20, 'Profil', text_color = dashboardLabelColor, bgcolor = color.new(color.gray, 92))
+    table.cell(dashboard, 1, 20, autoPresetProfile, text_color = dashboardValueColor, bgcolor = color.new(color.gray, 92))
+
+    table.cell(dashboard, 0, 21, 'Heatmap', text_color = dashboardLabelColor, bgcolor = color.new(color.gray, 88))
+    table.cell(dashboard, 1, 21, heatmapTxt, text_color = setupGrade == 'A' ? dashboardBullTextColor : setupGrade == 'B' ? dashboardValueColor : dashboardBearTextColor, bgcolor = color.new(color.gray, 88))
+
+    table.cell(dashboard, 0, 22, 'Journal', text_color = dashboardLabelColor, bgcolor = color.new(color.gray, 92))
+    table.cell(dashboard, 1, 22, journalTxt, text_color = dashboardValueColor, bgcolor = color.new(color.gray, 92))
+else if barstate.islast
+    table.clear(dashboard, 0, 0, 1, 22)
+
+if showSignalTable and barstate.islast
+    table.cell(signalTable, 0, 0, 'Signal', text_color = dashboardLabelColor, bgcolor = color.new(color.gray, 88))
+    table.cell(signalTable, 1, 0, signalDir, text_color = activeLong ? dashboardBullTextColor : activeShort ? dashboardBearTextColor : dashboardValueColor, bgcolor = color.new(color.gray, 88))
+
+    table.cell(signalTable, 0, 1, 'PE', text_color = dashboardLabelColor, bgcolor = color.new(color.gray, 92))
+    table.cell(signalTable, 1, 1, str.tostring(entryPrice, format.mintick), text_color = dashboardValueColor, bgcolor = color.new(color.gray, 92))
+
+    table.cell(signalTable, 0, 2, 'SL', text_color = dashboardLabelColor, bgcolor = color.new(color.gray, 88))
+    table.cell(signalTable, 1, 2, na(slPrice) ? 'n/a' : str.tostring(slPrice, format.mintick), text_color = dashboardValueColor, bgcolor = color.new(color.gray, 88))
+
+    table.cell(signalTable, 0, 3, 'TP1', text_color = dashboardLabelColor, bgcolor = color.new(color.gray, 92))
+    table.cell(signalTable, 1, 3, na(tp1Price) ? 'n/a' : str.tostring(tp1Price, format.mintick), text_color = dashboardValueColor, bgcolor = color.new(color.gray, 92))
+
+    table.cell(signalTable, 0, 4, 'TP2', text_color = dashboardLabelColor, bgcolor = color.new(color.gray, 88))
+    table.cell(signalTable, 1, 4, na(tpPrice) ? 'n/a' : str.tostring(tpPrice, format.mintick), text_color = dashboardValueColor, bgcolor = color.new(color.gray, 88))
+
+    table.cell(signalTable, 0, 5, 'RR', text_color = dashboardLabelColor, bgcolor = color.new(color.gray, 92))
+    table.cell(signalTable, 1, 5, na(rrValue) ? 'n/a' : str.tostring(rrValue, '#.##'), text_color = dashboardValueColor, bgcolor = color.new(color.gray, 92))
+
+    table.cell(signalTable, 0, 6, 'Grade', text_color = dashboardLabelColor, bgcolor = color.new(color.gray, 88))
+    table.cell(signalTable, 1, 6, setupGrade, text_color = setupGrade == 'A' ? dashboardBullTextColor : setupGrade == 'B' ? dashboardValueColor : dashboardBearTextColor, bgcolor = color.new(color.gray, 88))
+
+    table.cell(signalTable, 0, 7, 'Filter', text_color = dashboardLabelColor, bgcolor = color.new(color.gray, 92))
+    table.cell(signalTable, 1, 7, signalFilterTxt, text_color = noTradeZone ? dashboardBearTextColor : dashboardValueColor, bgcolor = color.new(color.gray, 92))
+
+    table.cell(signalTable, 0, 8, 'Score', text_color = dashboardLabelColor, bgcolor = color.new(color.gray, 88))
+    table.cell(signalTable, 1, 8, activeLong ? str.tostring(scoreBull) : activeShort ? str.tostring(scoreBear) : '-', text_color = activeLong ? dashboardBullTextColor : activeShort ? dashboardBearTextColor : dashboardValueColor, bgcolor = color.new(color.gray, 88))
+
+else if barstate.islast
+    table.clear(signalTable, 0, 0, 1, 8)
